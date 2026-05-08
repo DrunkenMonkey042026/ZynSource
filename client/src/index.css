@@ -1,0 +1,138 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Warm off-white surface */
+    --background: 60 9% 98%;
+    --foreground: 222 47% 11%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 11%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 47% 11%;
+
+    /* Brighter indigo so gradients don't muddy */
+    --primary: 239 84% 60%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 210 40% 96%;
+    --secondary-foreground: 222 47% 11%;
+
+    --muted: 210 40% 96%;
+    --muted-foreground: 215 16% 47%;
+
+    --accent: 210 40% 96%;
+    --accent-foreground: 222 47% 11%;
+
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 214 32% 91%;
+    --input: 214 32% 91%;
+    --ring: 239 84% 60%;
+
+    --radius: 1rem;
+
+    /* Brand gradient stops */
+    --grad-from: 239 84% 60%;   /* indigo-600  */
+    --grad-via: 292 84% 61%;    /* fuchsia-500 */
+    --grad-to: 24 95% 60%;      /* orange-400  */
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  html, body, #root {
+    height: 100%;
+  }
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-family: 'Inter', system-ui, sans-serif;
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+  }
+  h1, h2, h3, .font-display {
+    font-family: 'Geist', 'Inter', system-ui, sans-serif;
+    letter-spacing: -0.015em;
+  }
+  .font-mono, .tabular-nums {
+    font-family: 'Geist Mono', ui-monospace, monospace;
+  }
+}
+
+@layer utilities {
+  .scrollbar-thin::-webkit-scrollbar { width: 8px; height: 8px; }
+  .scrollbar-thin::-webkit-scrollbar-thumb { @apply bg-slate-300 rounded-full; }
+  .scrollbar-thin::-webkit-scrollbar-track { @apply bg-transparent; }
+
+  /* Brand gradient text */
+  .text-gradient-brand {
+    background-image: linear-gradient(
+      90deg,
+      hsl(var(--grad-from)),
+      hsl(var(--grad-via)),
+      hsl(var(--grad-to))
+    );
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+
+  /* Hero gradient surface (animated) */
+  .bg-hero-gradient {
+    background: radial-gradient(
+        circle at 20% 0%,
+        hsl(var(--grad-from) / 0.18),
+        transparent 50%
+      ),
+      radial-gradient(
+        circle at 80% 20%,
+        hsl(var(--grad-via) / 0.15),
+        transparent 50%
+      ),
+      radial-gradient(
+        circle at 60% 100%,
+        hsl(var(--grad-to) / 0.18),
+        transparent 50%
+      );
+  }
+
+  .bg-mesh {
+    background-image: linear-gradient(to right, hsl(var(--border) / 0.5) 1px, transparent 1px),
+      linear-gradient(to bottom, hsl(var(--border) / 0.5) 1px, transparent 1px);
+    background-size: 32px 32px;
+  }
+
+  .bg-dots {
+    background-image: radial-gradient(circle at 1px 1px, hsl(var(--border)) 1px, transparent 0);
+    background-size: 18px 18px;
+  }
+
+  /* Soft brand-tinted shadow used on hover for interactive cards */
+  .shadow-glow {
+    box-shadow: 0 10px 40px -15px hsl(var(--grad-from) / 0.4);
+  }
+
+  /* Slowly drift the hero gradient. */
+  @keyframes gradient-drift {
+    0%, 100% { background-position: 0% 0%; }
+    50% { background-position: 100% 100%; }
+  }
+  .animate-gradient-drift {
+    background-size: 200% 200%;
+    animation: gradient-drift 18s ease-in-out infinite;
+  }
+
+  /* Marquee */
+  @keyframes marquee {
+    0% { transform: translateX(0); }
+    100% { transform: translateX(-50%); }
+  }
+  .animate-marquee {
+    animation: marquee 40s linear infinite;
+  }
+}
