@@ -7,8 +7,12 @@ export function cn(...inputs: ClassValue[]) {
 
 export function formatINR(amount?: number) {
   if (amount == null) return ''
-  if (amount >= 10_000_00) {
-    return `₹${(amount / 100_000).toFixed(1)} L`
+  // Indian grouping: 1,50,000 → "1.5 L"; 1,50,00,000 → "1.5 Cr"
+  if (amount >= 1_00_00_000) {
+    return `₹${(amount / 1_00_00_000).toFixed(1)} Cr`
+  }
+  if (amount >= 1_00_000) {
+    return `₹${(amount / 1_00_000).toFixed(1)} L`
   }
   if (amount >= 1_000) {
     return `₹${(amount / 1_000).toFixed(0)}k`

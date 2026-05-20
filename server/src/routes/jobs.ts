@@ -1,12 +1,26 @@
 import { Router } from 'express'
 import { z } from 'zod'
 import { Job } from '../models/Job.js'
+import { Company } from '../models/Company.js'
+import { User } from '../models/User.js'
 import { requireAuth, requireRole } from '../middleware/auth.js'
 import { HttpError } from '../middleware/error.js'
 import { embed } from '../lib/ai.js'
+import { generateScreeningQuestions } from '../lib/ai-tools.js'
+import { toSlug } from '../lib/slug.js'
 
 function buildJobEmbeddingText(j: { title?: string; description?: string; skills?: string[]; company?: string; city?: string }) {
   return [j.title, j.company, j.city, (j.skills ?? []).join(', '), j.description].filter(Boolean).join('\n')
+}
+
+async function ensureCompanyId(companyName: string, logoUrl?: string) {
+  const slug = toSlug(companyName)
+  if (!slug) return undefined
+  let company = await Company.findOne({ slug })
+  if (!company) {
+    company = await Company.create({ name: companyName, slug, logoUrl: logoUrl ?? '' })
+  }
+  return company._id
 }
 
 export const jobsRouter = Router()
@@ -61,7 +75,13 @@ jobsRouter.get('/', async (req, res, next) => {
       Job.countDocuments(filter),
     ])
 
-    res.json({ items, total, page: pageNum, limit: limitNum, pages: Math.ceil(total / limitNum) })
+    // Hydrate verified flag from recruiters
+    const recruiterIds = [...new Set(items.map((j) => String(j.recruiterId)))]
+    const recruiters = await User.find({ _id: { $in: recruiterIds } }).select('verified').lean()
+    const verifiedMap = new Map(recruiters.map((r) => [String(r._id), !!r.verified]))
+    const hydrated = items.map((j) => ({ ...j, recruiterVerified: verifiedMap.get(String(j.recruiterId)) ?? false }))
+
+    res.json({ items: hydrated, total, page: pageNum, limit: limitNum, pages: Math.ceil(total / limitNum) })
   } catch (err) {
     next(err)
   }
@@ -72,7 +92,8 @@ jobsRouter.get('/:id', async (req, res, next) => {
   try {
     const job = await Job.findById(req.params.id).lean()
     if (!job) throw new HttpError(404, 'Job not found')
-    res.json({ job })
+    const recruiter = await User.findById(job.recruiterId).select('verified').lean()
+    res.json({ job: { ...job, recruiterVerified: !!recruiter?.verified } })
   } catch (err) {
     next(err)
   }
@@ -81,6 +102,7 @@ jobsRouter.get('/:id', async (req, res, next) => {
 const jobInputSchema = z.object({
   title: z.string().min(2),
   description: z.string().min(10),
+  descriptionHi: z.string().optional().default(''),
   company: z.string().min(1),
   companyLogoUrl: z.string().optional().default(''),
   location: z.string().optional().default(''),
@@ -97,18 +119,32 @@ const jobInputSchema = z.object({
   skills: z.array(z.string()).default([]),
   visaSponsorship: z.boolean().default(false),
   status: z.enum(['open', 'closed', 'draft']).default('open'),
+  screeningEnabled: z.boolean().default(false),
+  screeningPromptHint: z.string().optional().default(''),
+  languagesSupported: z.array(z.enum(['en', 'hi'])).optional(),
 })
 
 jobsRouter.post('/', requireAuth, requireRole('recruiter'), async (req, res, next) => {
   try {
     const input = jobInputSchema.parse(req.body)
-    const job = await Job.create({ ...input, recruiterId: req.auth!.userId })
+    const companyId = await ensureCompanyId(input.company, input.companyLogoUrl)
+    const job = await Job.create({ ...input, recruiterId: req.auth!.userId, companyId })
 
     // Compute embedding asynchronously
     void (async () => {
       const vec = await embed(buildJobEmbeddingText(input))
       if (vec) await Job.updateOne({ _id: job._id }, { $set: { embedding: vec } })
     })()
+
+    // Generate screening questions asynchronously if enabled
+    if (input.screeningEnabled) {
+      void (async () => {
+        const questions = await generateScreeningQuestions(input.title, input.description, input.screeningPromptHint)
+        if (questions.length > 0) {
+          await Job.updateOne({ _id: job._id }, { $set: { screeningQuestions: questions } })
+        }
+      })()
+    }
 
     res.json({ job })
   } catch (err) {
@@ -123,6 +159,10 @@ jobsRouter.patch('/:id', requireAuth, requireRole('recruiter'), async (req, res,
     if (String(job.recruiterId) !== req.auth!.userId) throw new HttpError(403, 'Not your job')
     const input = jobInputSchema.partial().parse(req.body)
     Object.assign(job, input)
+    if ('company' in input && input.company) {
+      const companyId = await ensureCompanyId(input.company, input.companyLogoUrl)
+      if (companyId) job.companyId = companyId as never
+    }
     await job.save()
 
     // Re-embed if any text-relevant field changed

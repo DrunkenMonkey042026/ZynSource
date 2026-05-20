@@ -20,6 +20,8 @@ import { Label } from '@/components/ui/label'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { PageHeader } from '@/components/PageHeader'
 import { MatchScoreBadge } from '@/components/MatchScoreBadge'
+import { ScreeningScorePanel } from '@/components/ScreeningScorePanel'
+import { ApplicationTimeline } from '@/components/ApplicationTimeline'
 import { STATUS_ORDER, STATUS_LABELS, type AppStatus } from '@/components/StatusBadge'
 import { api, apiError } from '@/lib/api'
 import { useToast } from '@/components/ui/toast'
@@ -31,14 +33,21 @@ interface Note {
   text: string
   createdAt: string
 }
+interface StatusEntry { from?: string; to?: string; at?: string }
+interface RubricEntry { questionIndex: number; score: number; rationale: string }
 interface Applicant {
   _id: string
   status: AppStatus
   coverLetter: string
   resumeUrlSnapshot: string
   notes: Note[]
+  statusHistory: StatusEntry[]
   createdAt: string
   matchScore?: number
+  screeningStatus?: 'none' | 'pending' | 'done' | 'failed'
+  screeningScore?: number
+  screeningAnswers: string[]
+  screeningRubric: RubricEntry[]
   seeker: { _id: string; name: string; email: string } | null
   profile: {
     headline?: string
@@ -49,17 +58,13 @@ interface Applicant {
   } | null
 }
 
-type SortMode = 'recent' | 'match'
+type SortMode = 'recent' | 'match' | 'screening'
 
 function ApplicantCard({ app, onClick }: { app: Applicant; onClick: () => void }) {
-  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
-    id: app._id,
-    data: { app },
-  })
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: app._id, data: { app } })
   const style = transform
     ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)`, zIndex: isDragging ? 50 : 'auto' as const }
     : undefined
-
   return (
     <Card
       ref={setNodeRef}
@@ -74,13 +79,21 @@ function ApplicantCard({ app, onClick }: { app: Applicant; onClick: () => void }
     >
       <div className="flex items-start justify-between gap-2">
         <div className="flex items-center gap-2 min-w-0">
-          <div
-            aria-hidden
-            className="h-7 w-7 rounded-full bg-brand-gradient flex-none ring-2 ring-background shadow-sm"
-          />
+          <div aria-hidden className="h-7 w-7 rounded-full bg-brand-gradient flex-none ring-2 ring-background shadow-sm" />
           <div className="font-medium text-sm truncate">{app.seeker?.name ?? t('Unknown')}</div>
         </div>
-        <MatchScoreBadge score={app.matchScore} />
+        <div className="flex flex-col items-end gap-1">
+          <MatchScoreBadge score={app.matchScore} />
+          {app.screeningStatus === 'done' && app.screeningScore != null && (
+            <span className="inline-flex items-center gap-0.5 rounded-full ring-1 bg-primary/10 text-primary ring-primary/20 px-2 py-0.5 text-[10px] font-semibold">
+              <Sparkles className="h-2.5 w-2.5" />
+              {app.screeningScore}%
+            </span>
+          )}
+          {app.screeningStatus === 'pending' && (
+            <span className="text-[10px] text-muted-foreground italic">{t('Scoring…')}</span>
+          )}
+        </div>
       </div>
       {app.profile?.headline && (
         <div className="text-xs text-muted-foreground mt-2 line-clamp-2">{app.profile.headline}</div>
@@ -112,9 +125,7 @@ function StatusColumn({
   return (
     <div className="min-w-[240px] flex-1">
       <div className="flex items-center justify-between mb-2 px-1">
-        <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-          {label}
-        </span>
+        <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{label}</span>
         <Badge variant="muted" className="rounded-full">{apps.length}</Badge>
       </div>
       <div
@@ -149,8 +160,15 @@ export default function RecruiterApplicants() {
     queryKey: ['job-applicants', id, sort],
     queryFn: async () => {
       const url = sort === 'match' ? `/match/applicants-for-job/${id}` : `/applications/by-job/${id}`
-      const res = await api.get<{ items: Applicant[]; job: { title: string; company: string } }>(url)
-      return res.data
+      const res = await api.get<{
+        items: Applicant[]
+        job: { _id: string; title: string; company: string; screeningQuestions?: string[] }
+      }>(url)
+      let items = res.data.items
+      if (sort === 'screening') {
+        items = [...items].sort((a, b) => (b.screeningScore ?? -1) - (a.screeningScore ?? -1))
+      }
+      return { ...res.data, items }
     },
     enabled: !!id,
   })
@@ -197,6 +215,8 @@ export default function RecruiterApplicants() {
     }
   }
 
+  const screeningQuestions = data?.job?.screeningQuestions ?? []
+
   return (
     <div className="container py-8">
       <Button variant="ghost" asChild className="mb-3 -ml-3 rounded-full">
@@ -215,6 +235,11 @@ export default function RecruiterApplicants() {
               <TabsTrigger value="match">
                 <Sparkles className="h-3.5 w-3.5 mr-1" /> {t('AI match')}
               </TabsTrigger>
+              {screeningQuestions.length > 0 && (
+                <TabsTrigger value="screening">
+                  <Sparkles className="h-3.5 w-3.5 mr-1" /> {t('Screening')}
+                </TabsTrigger>
+              )}
             </TabsList>
           </Tabs>
         }
@@ -248,7 +273,9 @@ export default function RecruiterApplicants() {
               <DialogHeader>
                 <div className="flex items-center justify-between gap-3">
                   <DialogTitle>{active.seeker?.name}</DialogTitle>
-                  <MatchScoreBadge score={active.matchScore} size="md" />
+                  <div className="flex items-center gap-2">
+                    <MatchScoreBadge score={active.matchScore} size="md" />
+                  </div>
                 </div>
                 <div className="text-sm text-muted-foreground">{active.seeker?.email}</div>
               </DialogHeader>
@@ -279,7 +306,7 @@ export default function RecruiterApplicants() {
                   rel="noreferrer"
                   className="inline-flex items-center gap-2 text-sm text-primary hover:underline"
                 >
-                  <FileText className="h-4 w-4" /> {t('Open resume')} ({active.resumeUrlSnapshot.split('/').pop()})
+                  <FileText className="h-4 w-4" /> {t('Open resume')}
                 </a>
               )}
 
@@ -289,6 +316,21 @@ export default function RecruiterApplicants() {
                   <div className="text-sm whitespace-pre-wrap">{active.coverLetter}</div>
                 </div>
               )}
+
+              <ScreeningScorePanel
+                status={active.screeningStatus}
+                score={active.screeningScore}
+                questions={screeningQuestions}
+                answers={active.screeningAnswers ?? []}
+                rubric={active.screeningRubric ?? []}
+              />
+
+              <ApplicationTimeline
+                createdAt={active.createdAt}
+                statusHistory={active.statusHistory ?? []}
+                notes={active.notes ?? []}
+                screeningStatus={active.screeningStatus}
+              />
 
               <div className="border-t pt-3">
                 <Label className="mb-2 block">{t('Pipeline status')}</Label>
@@ -304,18 +346,6 @@ export default function RecruiterApplicants() {
 
               <div className="border-t pt-3 space-y-3">
                 <Label>{t('Recruiter notes')}</Label>
-                {active.notes.length === 0 ? (
-                  <p className="text-xs text-muted-foreground italic">{t('No notes yet.')}</p>
-                ) : (
-                  <div className="space-y-2">
-                    {active.notes.map((n, i) => (
-                      <div key={i} className="rounded-xl border p-2 text-sm bg-slate-50">
-                        <div className="text-xs text-muted-foreground mb-0.5">{timeAgo(n.createdAt)}</div>
-                        <div className="whitespace-pre-wrap">{n.text}</div>
-                      </div>
-                    ))}
-                  </div>
-                )}
                 <div className="flex gap-2">
                   <Textarea
                     placeholder={t('Add a note (only your team can see this)')}

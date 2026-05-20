@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import {
@@ -18,6 +19,8 @@ import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
 import { Separator } from '@/components/ui/separator'
 import { ApplyDialog } from '@/components/ApplyDialog'
+import { VerifiedBadge } from '@/components/VerifiedBadge'
+import { SeoHead } from '@/components/SeoHead'
 import { api } from '@/lib/api'
 import { useAuth } from '@/lib/auth'
 import { formatSalaryRange, timeAgo } from '@/lib/utils'
@@ -27,7 +30,10 @@ export default function JobDetail() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const { user } = useAuth()
+  const { i18n } = useTranslation()
   const [open, setOpen] = useState(false)
+  const [translated, setTranslated] = useState<string | null>(null)
+  const [translating, setTranslating] = useState(false)
 
   const { data, isLoading } = useQuery({
     queryKey: ['job', id],
@@ -35,8 +41,26 @@ export default function JobDetail() {
     enabled: !!id,
   })
 
+  async function translateDescription() {
+    if (!data || translating) return
+    setTranslating(true)
+    try {
+      const res = await api.post<{ translation: string }>('/ai/translate-hi', { text: data.description })
+      setTranslated(res.data.translation)
+    } catch {
+      setTranslated(null)
+    } finally {
+      setTranslating(false)
+    }
+  }
+
   if (isLoading) return <div className="container py-12 text-muted-foreground">{t('Loading…')}</div>
   if (!data) return <div className="container py-12">{t('Job not found.')}</div>
+
+  const isHindi = i18n.language?.startsWith('hi')
+  const descriptionToRender =
+    (isHindi && data.descriptionHi) ? data.descriptionHi : (translated ?? data.description)
+  const showTranslateOption = isHindi && !data.descriptionHi && !translated
 
   function onApplyClick() {
     if (!user) {
@@ -52,6 +76,11 @@ export default function JobDetail() {
 
   return (
     <div className="container py-8 max-w-6xl">
+      <SeoHead
+        title={`${data.title} at ${data.company}`}
+        description={`${data.company} is hiring a ${data.title} in ${data.city}. Apply on ZynSource.`}
+        type="article"
+      />
       <Button variant="ghost" asChild className="mb-4 -ml-3 rounded-full">
         <Link to="/jobs">
           <ArrowLeft className="h-4 w-4" /> {t('Back to jobs')}
@@ -68,6 +97,7 @@ export default function JobDetail() {
                 <Building2 className="h-4 w-4" />
                 <span className="font-medium text-foreground">{data.company}</span>
               </span>
+              {data.recruiterVerified && <VerifiedBadge />}
               <span>·</span>
               <span className="inline-flex items-center gap-1.5">
                 <Clock className="h-4 w-4" />
@@ -103,8 +133,19 @@ export default function JobDetail() {
               </>
             )}
 
+            {showTranslateOption && (
+              <div className="rounded-xl border bg-brand-gradient-soft p-3 text-sm mb-4 flex items-center justify-between gap-3">
+                <span>{t('हिन्दी में देखें — AI translation')}</span>
+                <Button size="sm" variant="outline" className="rounded-full" onClick={translateDescription} disabled={translating}>
+                  {translating ? t('Translating…') : t('Translate')}
+                </Button>
+              </div>
+            )}
+            {translated && (
+              <div className="text-xs text-muted-foreground mb-2">{t('Translated by AI · original below if needed')}</div>
+            )}
             <div className="prose prose-slate max-w-none prose-headings:font-display prose-headings:font-semibold prose-h2:text-xl prose-h3:text-lg prose-p:leading-relaxed prose-li:my-1 prose-a:text-primary">
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>{data.description}</ReactMarkdown>
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>{descriptionToRender}</ReactMarkdown>
             </div>
           </CardContent>
         </Card>
@@ -147,7 +188,13 @@ export default function JobDetail() {
         </aside>
       </div>
 
-      <ApplyDialog jobId={data._id} jobTitle={data.title} open={open} onOpenChange={setOpen} />
+      <ApplyDialog
+        jobId={data._id}
+        jobTitle={data.title}
+        screeningQuestions={data.screeningQuestions ?? []}
+        open={open}
+        onOpenChange={setOpen}
+      />
     </div>
   )
 }

@@ -22,15 +22,30 @@ const StatusHistorySchema = new Schema(
   { _id: false },
 )
 
+const ScreeningRubricEntrySchema = new Schema(
+  {
+    questionIndex: Number,
+    score: Number, // 0..10
+    rationale: String,
+  },
+  { _id: false },
+)
+
 const ApplicationSchema = new Schema(
   {
     jobId: { type: Schema.Types.ObjectId, ref: 'Job', required: true, index: true },
     seekerId: { type: Schema.Types.ObjectId, ref: 'User', required: true, index: true },
     resumeUrlSnapshot: { type: String, default: '' },
+    resumeKeySnapshot: { type: String, default: '' },
     coverLetter: { type: String, default: '' },
     status: { type: String, enum: APPLICATION_STATUSES, default: 'applied', index: true },
     notes: { type: [NoteSchema], default: [] },
     statusHistory: { type: [StatusHistorySchema], default: [] },
+    // Phase 2C: AI screening
+    screeningAnswers: { type: [String], default: [] },
+    screeningScore: { type: Number }, // 0..100 normalized
+    screeningRubric: { type: [ScreeningRubricEntrySchema], default: [] },
+    screeningStatus: { type: String, enum: ['none', 'pending', 'done', 'failed'], default: 'none' },
   },
   { timestamps: true },
 )

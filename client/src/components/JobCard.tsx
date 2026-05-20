@@ -3,6 +3,7 @@ import { motion } from 'framer-motion'
 import { Briefcase, MapPin, Clock, IndianRupee, Building2 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { MatchScoreBadge } from '@/components/MatchScoreBadge'
+import { VerifiedBadge } from '@/components/VerifiedBadge'
 import { formatSalaryRange, timeAgo } from '@/lib/utils'
 
 export interface JobSummary {
@@ -20,6 +21,7 @@ export interface JobSummary {
   skills?: string[]
   createdAt: string
   matchScore?: number
+  recruiterVerified?: boolean
 }
 
 const workModeTone: Record<string, 'success' | 'info' | 'muted'> = {
@@ -44,9 +46,12 @@ export function JobCard({ job }: { job: JobSummary }) {
               </h3>
               <MatchScoreBadge score={job.matchScore} />
             </div>
-            <div className="flex items-center gap-1.5 text-sm text-muted-foreground mt-1">
-              <Building2 className="h-3.5 w-3.5" />
-              {job.company}
+            <div className="flex items-center gap-2 text-sm text-muted-foreground mt-1">
+              <span className="inline-flex items-center gap-1.5">
+                <Building2 className="h-3.5 w-3.5" />
+                {job.company}
+              </span>
+              {job.recruiterVerified && <VerifiedBadge />}
             </div>
           </div>
           <Badge variant={workModeTone[job.workMode] ?? 'muted'} className="shrink-0">

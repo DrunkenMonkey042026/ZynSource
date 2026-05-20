@@ -4,16 +4,27 @@ import { Profile } from '../models/Profile.js'
 import { requireAuth, requireRole } from '../middleware/auth.js'
 import { upload } from '../middleware/upload.js'
 import { HttpError } from '../middleware/error.js'
-import { persistFile, deleteFile } from '../lib/storage.js'
+import { persistFile, deleteFile, signedUrlFor } from '../lib/storage.js'
 import { parseResume, embed } from '../lib/ai.js'
 
 export const profilesRouter = Router()
+
+/**
+ * Helper: replace `resumeUrl` on the response payload with a freshly-signed URL
+ * derived from `resumeKey`. Leaves the document untouched.
+ */
+async function withFreshResumeUrl<T extends { resumeKey?: string; resumeUrl?: string }>(profile: T): Promise<T> {
+  if (!profile.resumeKey) return profile
+  const url = await signedUrlFor(profile.resumeKey)
+  return { ...profile, resumeUrl: url }
+}
 
 profilesRouter.get('/me', requireAuth, requireRole('seeker'), async (req, res, next) => {
   try {
     let profile = await Profile.findOne({ userId: req.auth!.userId })
     if (!profile) profile = await Profile.create({ userId: req.auth!.userId })
-    res.json({ profile })
+    const payload = await withFreshResumeUrl(profile.toObject())
+    res.json({ profile: payload })
   } catch (err) {
     next(err)
   }
@@ -91,7 +102,8 @@ profilesRouter.put('/me', requireAuth, requireRole('seeker'), async (req, res, n
       }
     })()
 
-    res.json({ profile })
+    const payload = await withFreshResumeUrl(profile.toObject())
+    res.json({ profile: payload })
   } catch (err) {
     next(err)
   }
@@ -103,25 +115,25 @@ profilesRouter.post('/me/resume', requireAuth, requireRole('seeker'), upload.sin
     const profile = await Profile.findOne({ userId: req.auth!.userId })
     if (!profile) throw new HttpError(404, 'Profile not found')
 
-    // Delete previous file (cloud or local), best-effort
-    if (profile.resumeUrl) {
-      await deleteFile({ url: profile.resumeUrl, publicId: profile.resumePublicId || undefined })
+    // Delete previous file (S3 or local), best-effort
+    if (profile.resumeKey) {
+      await deleteFile({ key: profile.resumeKey })
     }
 
-    // Persist new file (cloud if configured, otherwise local /uploads)
+    // Persist new file (S3 if configured, otherwise local /uploads)
     const persisted = await persistFile(req.file.path, req.file.originalname)
-    profile.resumeUrl = persisted.url
-    profile.resumePublicId = persisted.publicId ?? ''
+    profile.resumeKey = persisted.key
+    profile.resumeUrl = persisted.signedUrl
     profile.parseStatus = 'pending'
     profile.parsePreview = null
     await profile.save()
 
     // Respond immediately; parse asynchronously and stamp results.
-    res.json({ resumeUrl: profile.resumeUrl, parseStatus: profile.parseStatus })
+    res.json({ resumeUrl: persisted.signedUrl, parseStatus: profile.parseStatus })
 
     void (async () => {
       try {
-        const parsed = await parseResume(persisted.url)
+        const parsed = await parseResume(persisted.key)
         await Profile.updateOne(
           { _id: profile._id },
           parsed
@@ -139,8 +151,8 @@ profilesRouter.post('/me/resume', requireAuth, requireRole('seeker'), upload.sin
 })
 
 /**
- * Apply the AI-extracted preview onto the profile's editable fields,
- * then clear the preview. Skills are merged (union) with existing.
+ * Apply the AI-extracted preview onto the profile's editable fields, then clear the preview.
+ * Skills are merged (union) with existing.
  */
 profilesRouter.post('/me/apply-parse', requireAuth, requireRole('seeker'), async (req, res, next) => {
   try {
@@ -164,7 +176,8 @@ profilesRouter.post('/me/apply-parse', requireAuth, requireRole('seeker'), async
     profile.parsePreview = null
     profile.parseStatus = 'idle'
     await profile.save()
-    res.json({ profile })
+    const payload = await withFreshResumeUrl(profile.toObject())
+    res.json({ profile: payload })
   } catch (err) {
     next(err)
   }

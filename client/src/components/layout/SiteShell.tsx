@@ -11,6 +11,8 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import { NotificationBell } from '@/components/NotificationBell'
+import { LanguageSwitcher } from '@/components/LanguageSwitcher'
 import { t } from '@/lib/i18n'
 import type { ReactNode } from 'react'
 
@@ -74,6 +76,8 @@ export function SiteShell({ children }: { children: ReactNode }) {
           </nav>
 
           <div className="flex items-center gap-2">
+            <LanguageSwitcher />
+            {user && <NotificationBell />}
             {user ? (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
@@ -98,6 +102,9 @@ export function SiteShell({ children }: { children: ReactNode }) {
                       </DropdownMenuItem>
                       <DropdownMenuItem onClick={() => navigate('/me/applications')}>
                         <FileText className="h-4 w-4 mr-2" /> {t('My applications')}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => navigate('/me/alerts')}>
+                        <FileText className="h-4 w-4 mr-2" /> {t('My alerts')}
                       </DropdownMenuItem>
                     </>
                   )}

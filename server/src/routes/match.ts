@@ -6,6 +6,7 @@ import { User } from '../models/User.js'
 import { requireAuth, requireRole } from '../middleware/auth.js'
 import { HttpError } from '../middleware/error.js'
 import { cosineSim, similarityToPercent } from '../lib/ai.js'
+import { signedUrlFor } from '../lib/storage.js'
 import { features } from '../lib/env.js'
 
 export const matchRouter = Router()
@@ -79,21 +80,24 @@ matchRouter.get('/applicants-for-job/:jobId', requireAuth, requireRole('recruite
 
     const jobEmbedding = (job.embedding as number[] | undefined) ?? null
 
-    const items = apps.map((app) => {
-      const profile = profileMap.get(String(app.seekerId)) || null
-      let matchScore: number | undefined
-      if (jobEmbedding && profile?.embedding && profile.embedding.length > 0) {
-        matchScore = similarityToPercent(cosineSim(jobEmbedding, profile.embedding as number[]))
-      }
-      // Strip embedding from the wire payload
-      const cleanProfile = profile ? { ...profile, embedding: undefined } : null
-      return {
-        ...app,
-        seeker: seekerMap.get(String(app.seekerId)) || null,
-        profile: cleanProfile,
-        matchScore,
-      }
-    })
+    const items = await Promise.all(
+      apps.map(async (app) => {
+        const profile = profileMap.get(String(app.seekerId)) || null
+        let matchScore: number | undefined
+        if (jobEmbedding && profile?.embedding && profile.embedding.length > 0) {
+          matchScore = similarityToPercent(cosineSim(jobEmbedding, profile.embedding as number[]))
+        }
+        const cleanProfile = profile ? { ...profile, embedding: undefined } : null
+        const fresh = app.resumeKeySnapshot ? await signedUrlFor(app.resumeKeySnapshot) : app.resumeUrlSnapshot
+        return {
+          ...app,
+          resumeUrlSnapshot: fresh,
+          seeker: seekerMap.get(String(app.seekerId)) || null,
+          profile: cleanProfile,
+          matchScore,
+        }
+      }),
+    )
 
     items.sort((a, b) => (b.matchScore ?? 0) - (a.matchScore ?? 0))
     res.json({ items, job: { _id: job._id, title: job.title, company: job.company } })

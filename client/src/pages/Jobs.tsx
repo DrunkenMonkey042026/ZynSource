@@ -10,6 +10,8 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { JobCard, type JobSummary } from '@/components/JobCard'
+import { SaveSearchButton } from '@/components/SaveSearchButton'
+import { SeoHead } from '@/components/SeoHead'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { t } from '@/lib/i18n'
@@ -104,6 +106,7 @@ export default function Jobs() {
 
   return (
     <div className="container py-8">
+      <SeoHead title={t('Browse jobs')} description="Search 12,000+ open roles across India. Filter by city, skill, salary, work mode." />
       {/* Search bar */}
       <div className="rounded-2xl border bg-card p-4 sticky top-16 z-30 backdrop-blur-md bg-card/95">
         <div className="flex flex-col md:flex-row gap-2">
@@ -227,10 +230,11 @@ export default function Jobs() {
 
       {/* Results */}
       <section className="mt-6">
-        <div className="flex items-baseline justify-between mb-4">
+        <div className="flex items-baseline justify-between mb-4 gap-3 flex-wrap">
           <h1 className="font-display text-2xl font-semibold">
             {isLoading ? t('Searching…') : `${data?.total ?? 0} ${t('jobs found')}`}
           </h1>
+          <SaveSearchButton />
         </div>
 
         {isLoading ? (

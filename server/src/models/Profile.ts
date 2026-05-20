@@ -43,8 +43,8 @@ const ProfileSchema = new Schema(
     skills: { type: [String], default: [] },
     workHistory: { type: [WorkHistorySchema], default: [] },
     education: { type: [EducationSchema], default: [] },
-    resumeUrl: { type: String, default: '' },
-    resumePublicId: { type: String, default: '' }, // Cloudinary public_id (or empty for local)
+    resumeUrl: { type: String, default: '' }, // last-signed URL (may be stale; refresh from resumeKey)
+    resumeKey: { type: String, default: '' }, // S3 object key, or "/uploads/..." for local fallback
     visaSponsorshipNeeded: { type: Boolean, default: false },
     openToRemote: { type: Boolean, default: true },
     visibilityScore: { type: Number, default: 0 },

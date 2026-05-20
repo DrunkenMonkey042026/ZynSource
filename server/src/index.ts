@@ -11,6 +11,18 @@ import { profilesRouter } from './routes/profiles.js'
 import { applicationsRouter } from './routes/applications.js'
 import { recruiterRouter } from './routes/recruiter.js'
 import { matchRouter } from './routes/match.js'
+import { companiesRouter } from './routes/companies.js'
+import { reviewsRouter } from './routes/reviews.js'
+import { salaryGuidesRouter } from './routes/salary-guides.js'
+import { postsRouter } from './routes/posts.js'
+import { adminRouter } from './routes/admin.js'
+import { seoRouter } from './routes/seo.js'
+import { notificationsRouter } from './routes/notifications.js'
+import { savedSearchesRouter } from './routes/saved-searches.js'
+import { alertsRouter } from './routes/alerts.js'
+import { chatRouter } from './routes/chat.js'
+import { aiToolsRouter } from './routes/ai-tools.js'
+import { startCron } from './lib/cron.js'
 
 const app = express()
 
@@ -29,6 +41,22 @@ app.use('/api/applications', applicationsRouter)
 app.use('/api/recruiter', recruiterRouter)
 app.use('/api/match', matchRouter)
 
+// Phase 2B
+app.use('/api/companies', companiesRouter)
+app.use('/api/reviews', reviewsRouter)
+app.use('/api/salary-guides', salaryGuidesRouter)
+app.use('/api/posts', postsRouter)
+app.use('/api/admin', adminRouter)
+// SEO endpoints are mounted at root, not /api
+app.use('/', seoRouter)
+
+// Phase 2C
+app.use('/api/notifications', notificationsRouter)
+app.use('/api/saved-searches', savedSearchesRouter)
+app.use('/api/alerts', alertsRouter)
+app.use('/api/chat', chatRouter)
+app.use('/api/ai', aiToolsRouter)
+
 app.use(errorHandler)
 
 async function start() {
@@ -36,6 +64,7 @@ async function start() {
   app.listen(env.PORT, () => {
     console.log(`[server] listening on http://localhost:${env.PORT}`)
   })
+  startCron()
 }
 
 start().catch((err) => {

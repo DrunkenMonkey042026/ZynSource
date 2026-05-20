@@ -5,6 +5,8 @@ import { User } from '../models/User.js'
 import { Profile } from '../models/Profile.js'
 import { requireAuth, signToken } from '../middleware/auth.js'
 import { HttpError } from '../middleware/error.js'
+import { sendWelcomeEmail } from '../templates/emails.js'
+import { notify } from '../lib/notify.js'
 
 export const authRouter = Router()
 
@@ -31,9 +33,22 @@ authRouter.post('/register', async (req, res, next) => {
       await Profile.create({ userId: user._id })
     }
     const token = signToken({ userId: String(user._id), role: user.role as 'seeker' | 'recruiter' })
+
+    // Fire-and-forget welcome notification + email
+    void notify({
+      userId: String(user._id),
+      type: 'welcome',
+      title: 'Welcome to ZynSource',
+      body: input.role === 'seeker'
+        ? 'Complete your profile to unlock AI matching.'
+        : 'Post your first job to start hiring.',
+      link: input.role === 'seeker' ? '/me/profile' : '/recruiter/jobs/new',
+    })
+    void sendWelcomeEmail({ to: user.email, name: user.name, role: user.role as 'seeker' | 'recruiter' })
+
     res.json({
       token,
-      user: { id: String(user._id), email: user.email, name: user.name, role: user.role },
+      user: { id: String(user._id), email: user.email, name: user.name, role: user.role, verified: user.verified },
     })
   } catch (err) {
     next(err)
@@ -55,7 +70,7 @@ authRouter.post('/login', async (req, res, next) => {
     const token = signToken({ userId: String(user._id), role: user.role as 'seeker' | 'recruiter' })
     res.json({
       token,
-      user: { id: String(user._id), email: user.email, name: user.name, role: user.role },
+      user: { id: String(user._id), email: user.email, name: user.name, role: user.role, verified: user.verified },
     })
   } catch (err) {
     next(err)
@@ -67,7 +82,7 @@ authRouter.get('/me', requireAuth, async (req, res, next) => {
     const user = await User.findById(req.auth!.userId)
     if (!user) throw new HttpError(404, 'User not found')
     res.json({
-      user: { id: String(user._id), email: user.email, name: user.name, role: user.role },
+      user: { id: String(user._id), email: user.email, name: user.name, role: user.role, verified: user.verified, locale: user.locale },
     })
   } catch (err) {
     next(err)

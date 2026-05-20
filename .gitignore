@@ -9,3 +9,6 @@ server/uploads/
 !server/uploads/.gitkeep
 .vscode/
 .idea/
+.claude/
+# Personal/working files (committed selectively)
+Cost_Analysis.xlsx

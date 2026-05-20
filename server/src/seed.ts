@@ -4,12 +4,30 @@ import { User } from './models/User.js'
 import { Profile } from './models/Profile.js'
 import { Job } from './models/Job.js'
 import { Application } from './models/Application.js'
+import { Company } from './models/Company.js'
+import { Review } from './models/Review.js'
+import { Post } from './models/Post.js'
+import { Notification } from './models/Notification.js'
+import { SavedSearch } from './models/SavedSearch.js'
+import { AnonymousAlert } from './models/AnonymousAlert.js'
+import { toSlug } from './lib/slug.js'
 import mongoose from 'mongoose'
 
 async function run() {
   await connectDB()
   console.log('[seed] clearing existing data…')
-  await Promise.all([User.deleteMany({}), Profile.deleteMany({}), Job.deleteMany({}), Application.deleteMany({})])
+  await Promise.all([
+    User.deleteMany({}),
+    Profile.deleteMany({}),
+    Job.deleteMany({}),
+    Application.deleteMany({}),
+    Company.deleteMany({}),
+    Review.deleteMany({}),
+    Post.deleteMany({}),
+    Notification.deleteMany({}),
+    SavedSearch.deleteMany({}),
+    AnonymousAlert.deleteMany({}),
+  ])
 
   const passwordHash = await bcrypt.hash('password123', 10)
 
@@ -19,6 +37,8 @@ async function run() {
     passwordHash,
     name: 'Priya Sharma',
     role: 'recruiter',
+    verified: true,
+    verifiedAt: new Date(),
   })
 
   const seeker = await User.create({
@@ -250,8 +270,59 @@ async function run() {
   ])
 
   console.log(`[seed] created ${jobs.length} jobs.`)
+
+  // Backfill Company rows from job postings + link companyId on each Job
+  console.log('[seed] creating Company rows…')
+  const uniqueCompanies = new Map<string, { name: string; logo: string }>()
+  for (const j of jobs) uniqueCompanies.set(j.company, { name: j.company, logo: j.companyLogoUrl || '' })
+  const companies = await Company.insertMany(
+    [...uniqueCompanies.values()].map((c) => ({
+      name: c.name,
+      slug: toSlug(c.name),
+      logoUrl: c.logo,
+      aboutMarkdown: `**${c.name}** is hiring on ZynSource. Edit this About via the admin panel.`,
+    })),
+  )
+  const companyBySlug = new Map(companies.map((c) => [c.slug, c._id]))
+  for (const j of jobs) {
+    const slug = toSlug(j.company)
+    const cid = companyBySlug.get(slug)
+    if (cid) {
+      j.companyId = cid as never
+      await j.save()
+    }
+  }
+  console.log(`[seed] created ${companies.length} companies.`)
+
+  // Sample blog posts
+  console.log('[seed] creating sample blog posts…')
+  await Post.insertMany([
+    {
+      title: 'Hiring great engineers in India in 2026',
+      slug: 'hiring-great-engineers-in-india-2026',
+      excerpt: 'What we learned analyzing 50,000 applications across Bengaluru, Hyderabad, and Pune.',
+      bodyMarkdown: `# Hiring great engineers in India in 2026\n\nThe Indian engineering hiring market has shifted dramatically over the last 18 months. Here's what we're seeing on ZynSource:\n\n## The signal that matters most\n\nA decade ago, a degree from an IIT was the strongest signal in a resume. Today, **shipped projects** matter more — open source contributions, side projects, even thoughtful PRs to public repos.\n\n## What's hot in 2026\n\n- AI/ML engineers — salaries up 38% YoY\n- Platform / infra engineers (Kubernetes, Terraform)\n- Senior fullstack developers with React + Node\n- Product designers fluent in design systems\n\n## What's cooling\n\n- Generic "Software Engineer" roles without specialization\n- Pure manual QA (automation is non-negotiable now)\n\n## How to find them\n\nPost specific roles. Use ZynSource's AI screening questions to filter signal from noise. Move fast — top candidates close offers in 7–10 days.`,
+      authorName: 'ZynSource Editorial',
+      tags: ['hiring', 'engineering', 'india'],
+      status: 'published',
+      publishedAt: new Date(),
+      coverImageUrl: '',
+    },
+    {
+      title: 'A salary transparency manifesto',
+      slug: 'salary-transparency-manifesto',
+      excerpt: 'Hidden salary ranges are a tax on candidates. We hide ours from no one.',
+      bodyMarkdown: `# A salary transparency manifesto\n\nIn Indian recruitment, the standard playbook is to hide salary ranges until late in the funnel. We think that's bad for everyone.\n\n**For candidates**: you waste hours on processes you'd never accept the offer for.\n\n**For recruiters**: you waste interviewer time on candidates whose expectations are off.\n\n**For the market**: salary information asymmetry depresses wages, especially for women and underrepresented groups.\n\n## What we do on ZynSource\n\nWe encourage every recruiter to publish a salary range. Our salary guides aggregate ranges across roles + cities so candidates know what's typical. AI matching uses salary alignment as one of its signals.\n\nIt's not perfect — some recruiters still hide ranges — but the direction is clear. Transparency wins.`,
+      authorName: 'ZynSource Editorial',
+      tags: ['compensation', 'transparency'],
+      status: 'published',
+      publishedAt: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000),
+      coverImageUrl: '',
+    },
+  ])
+
   console.log('[seed] done.')
-  console.log('  Recruiter login: recruiter@zynsource.test / password123')
+  console.log('  Recruiter login: recruiter@zynsource.test / password123  (verified ✓)')
   console.log('  Seeker login:    seeker@zynsource.test / password123')
 
   await mongoose.disconnect()

@@ -3,8 +3,10 @@ import { Schema, model } from 'mongoose'
 const JobSchema = new Schema(
   {
     recruiterId: { type: Schema.Types.ObjectId, ref: 'User', required: true, index: true },
+    companyId: { type: Schema.Types.ObjectId, ref: 'Company', index: true },
     title: { type: String, required: true },
     description: { type: String, required: true },
+    descriptionHi: { type: String, default: '' }, // Phase 2E: optional Hindi description
     company: { type: String, required: true },
     companyLogoUrl: { type: String, default: '' },
     location: { type: String, default: '' },
@@ -24,6 +26,12 @@ const JobSchema = new Schema(
     applicationCount: { type: Number, default: 0 },
     // Phase 2A: AI matching
     embedding: { type: [Number], default: undefined, select: false },
+    // Phase 2C: AI screening (Zinterview-inspired)
+    screeningEnabled: { type: Boolean, default: false },
+    screeningPromptHint: { type: String, default: '' },
+    screeningQuestions: { type: [String], default: [] },
+    // Phase 2E: multilingual
+    languagesSupported: { type: [String], default: ['en'] },
   },
   { timestamps: true },
 )

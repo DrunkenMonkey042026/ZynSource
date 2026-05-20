@@ -1,7 +1,8 @@
-import Anthropic from '@anthropic-ai/sdk'
+import OpenAI from 'openai'
 import { env, features } from './env.js'
+import { fetchBytes } from './storage.js'
 
-const anthropic = features.resumeParsing ? new Anthropic({ apiKey: env.ANTHROPIC_API_KEY! }) : null
+const openai = features.resumeParsing ? new OpenAI({ apiKey: env.OPENAI_API_KEY! }) : null
 
 export interface ParsedResume {
   headline?: string
@@ -10,87 +11,63 @@ export interface ParsedResume {
   education?: { institution?: string; degree?: string; year?: string }[]
 }
 
-const PARSE_SYSTEM_PROMPT = `You extract structured information from a candidate's resume PDF.
+const PARSE_SYSTEM_PROMPT = `You extract structured information from a candidate's resume.
 
 Return ONLY a JSON object matching this exact shape (no markdown, no commentary):
 
 {
-  "headline": string,                          // a 1-line professional tagline like "Senior backend engineer | Go + Postgres" derived from their most recent role and top skills
-  "skills": string[],                          // canonical skill tags, deduplicated, max 25 items, each ≤ 30 chars (e.g. "React", "TypeScript", "AWS Lambda")
+  "headline": string,
+  "skills": string[],
   "workHistory": [
-    {
-      "company": string,
-      "title": string,
-      "startDate": string,                     // YYYY-MM if known else best-effort string
-      "endDate": string,                       // YYYY-MM, "Present", or empty
-      "description": string                    // 1-3 sentences, action-oriented
-    }
+    { "company": string, "title": string, "startDate": string, "endDate": string, "description": string }
   ],
   "education": [
-    {
-      "institution": string,
-      "degree": string,
-      "year": string                           // graduation year or year range
-    }
+    { "institution": string, "degree": string, "year": string }
   ]
 }
 
 Rules:
-- Always output valid JSON. If a field is unknown, use an empty string or empty array.
-- Order workHistory most-recent first.
-- Do NOT invent facts. If a section is absent in the resume, return an empty array.`
+- headline: a 1-line professional tagline like "Senior backend engineer | Go + Postgres" derived from their most recent role and top skills.
+- skills: canonical skill tags, deduplicated, max 25, each ≤ 30 chars.
+- workHistory: most-recent first. startDate/endDate as YYYY-MM (use "Present" for current). description = 1-3 action-oriented sentences.
+- education: institution, degree, graduation year or year range.
+- If a field is unknown, use an empty string. If a section is absent, return an empty array.
+- Do NOT invent facts.
+- Output valid JSON, nothing else.`
 
 /**
- * Parse a resume from a public URL (Cloudinary) or local file path.
- * Returns structured data, or null if parsing is disabled / fails.
+ * Parse a resume by S3 key (or local /uploads path).
+ * Extracts text from the PDF, then asks GPT-4o-mini to structure it.
+ * Returns null if parsing is disabled, the file isn't a PDF, or extraction fails.
  */
-export async function parseResume(fileUrl: string): Promise<ParsedResume | null> {
-  if (!anthropic) return null
+export async function parseResume(key: string): Promise<ParsedResume | null> {
+  if (!openai) return null
+  if (!key || !key.toLowerCase().endsWith('.pdf')) return null
 
   try {
-    let documentSource:
-      | { type: 'url'; url: string }
-      | { type: 'base64'; media_type: 'application/pdf'; data: string }
+    const bytes = await fetchBytes(key)
+    if (!bytes) return null
 
-    if (/^https?:\/\//i.test(fileUrl)) {
-      documentSource = { type: 'url', url: fileUrl }
-    } else {
-      // Local file — read and base64-encode. Anthropic accepts only PDFs as documents.
-      const fs = await import('node:fs')
-      const path = await import('node:path')
-      const abs = path.join(process.cwd(), fileUrl.replace(/^\/+/, ''))
-      const ext = path.extname(abs).toLowerCase()
-      if (ext !== '.pdf') {
-        // .doc/.docx aren't supported by Anthropic's document API — skip silently for MVP.
-        return null
-      }
-      const buf = fs.readFileSync(abs)
-      documentSource = {
-        type: 'base64',
-        media_type: 'application/pdf',
-        data: buf.toString('base64'),
-      }
-    }
+    // pdf-parse is CJS; default-import handles both ESM and CJS interop in tsx
+    const pdfParseMod = await import('pdf-parse')
+    const pdfParse = (pdfParseMod.default ?? pdfParseMod) as (b: Buffer) => Promise<{ text: string }>
+    const { text } = await pdfParse(bytes)
+    const trimmed = text.trim().slice(0, 18_000) // keep prompt cheap
+    if (!trimmed) return null
 
-    const msg = await anthropic.messages.create({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 2000,
-      system: [{ type: 'text', text: PARSE_SYSTEM_PROMPT, cache_control: { type: 'ephemeral' } }] as never,
+    const resp = await openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      response_format: { type: 'json_object' },
       messages: [
-        {
-          role: 'user',
-          content: [
-            { type: 'document', source: documentSource } as never,
-            { type: 'text', text: 'Extract the structured information now.' },
-          ],
-        },
+        { role: 'system', content: PARSE_SYSTEM_PROMPT },
+        { role: 'user', content: `Here is the resume text. Extract the structured information now.\n\n---\n\n${trimmed}` },
       ],
+      max_tokens: 1500,
     })
 
-    const text = msg.content.map((b) => (b.type === 'text' ? b.text : '')).join('')
-    const jsonMatch = text.match(/\{[\s\S]*\}/)
-    if (!jsonMatch) return null
-    return JSON.parse(jsonMatch[0]) as ParsedResume
+    const raw = resp.choices[0]?.message?.content
+    if (!raw) return null
+    return JSON.parse(raw) as ParsedResume
   } catch (err) {
     console.error('[ai.parseResume] failed:', err)
     return null
@@ -98,31 +75,17 @@ export async function parseResume(fileUrl: string): Promise<ParsedResume | null>
 }
 
 /**
- * Compute a 1024-dim embedding via Voyage. Returns null if disabled or fails.
- * Uses voyage-3-large for best quality.
+ * Compute a 1536-dim embedding via OpenAI text-embedding-3-small.
+ * Returns null if disabled or fails.
  */
 export async function embed(text: string): Promise<number[] | null> {
-  if (!features.embeddings || !text.trim()) return null
-
+  if (!openai || !text.trim()) return null
   try {
-    const res = await fetch('https://api.voyageai.com/v1/embeddings', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${env.VOYAGE_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        input: text.slice(0, 8000), // soft cap; voyage handles up to 32k tokens
-        model: 'voyage-3-large',
-        input_type: 'document',
-      }),
+    const resp = await openai.embeddings.create({
+      model: 'text-embedding-3-small',
+      input: text.slice(0, 8000),
     })
-    if (!res.ok) {
-      console.error('[ai.embed] voyage status', res.status, await res.text())
-      return null
-    }
-    const json = (await res.json()) as { data: { embedding: number[] }[] }
-    return json.data[0]?.embedding ?? null
+    return resp.data[0]?.embedding ?? null
   } catch (err) {
     console.error('[ai.embed] failed:', err)
     return null
@@ -130,7 +93,7 @@ export async function embed(text: string): Promise<number[] | null> {
 }
 
 /**
- * Cosine similarity in [−1, 1]. Used as in-memory fallback when Atlas Vector Search isn't set up.
+ * Cosine similarity in [-1, 1].
  */
 export function cosineSim(a: number[], b: number[]): number {
   if (a.length !== b.length) return 0
@@ -147,11 +110,10 @@ export function cosineSim(a: number[], b: number[]): number {
 }
 
 /**
- * Map cosine similarity (−1..1) → 0..100 percentage with a sensible curve
- * so 0.7 cosine ≈ 85% UI score.
+ * Map cosine similarity (-1..1) → 0..100 % with a sensible curve so
+ * 0.7 cosine ≈ 85% UI score.
  */
 export function similarityToPercent(cos: number): number {
-  // Clamp negatives to 0 (irrelevant), then steepen positives
   const c = Math.max(0, cos)
   return Math.round(Math.min(100, c * c * 100 * 1.4))
 }

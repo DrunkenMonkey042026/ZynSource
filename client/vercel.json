@@ -1,0 +1,9 @@
+{
+  "rewrites": [
+    { "source": "/api/(.*)", "destination": "https://zynsource-server.onrender.com/api/$1" },
+    { "source": "/uploads/(.*)", "destination": "https://zynsource-server.onrender.com/uploads/$1" },
+    { "source": "/sitemap.xml", "destination": "https://zynsource-server.onrender.com/sitemap.xml" },
+    { "source": "/robots.txt", "destination": "https://zynsource-server.onrender.com/robots.txt" },
+    { "source": "/(.*)", "destination": "/index.html" }
+  ]
+}
