@@ -129,7 +129,9 @@ export async function fetchBytes(key: string): Promise<Buffer | null> {
     const chunks: Buffer[] = []
     const stream = res.Body as NodeJS.ReadableStream
     for await (const chunk of stream) {
-      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as ArrayBuffer))
+      if (Buffer.isBuffer(chunk)) chunks.push(chunk)
+      else if (typeof chunk === 'string') chunks.push(Buffer.from(chunk))
+      else chunks.push(Buffer.from(chunk as unknown as ArrayBuffer))
     }
     return Buffer.concat(chunks)
   } catch (err) {

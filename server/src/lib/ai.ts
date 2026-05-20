@@ -48,9 +48,12 @@ export async function parseResume(key: string): Promise<ParsedResume | null> {
     const bytes = await fetchBytes(key)
     if (!bytes) return null
 
-    // pdf-parse is CJS; default-import handles both ESM and CJS interop in tsx
-    const pdfParseMod = await import('pdf-parse')
-    const pdfParse = (pdfParseMod.default ?? pdfParseMod) as (b: Buffer) => Promise<{ text: string }>
+    // pdf-parse is a CJS module exposed as a function. When imported via ESM,
+    // the default export may or may not exist depending on Node + version.
+    // Cast through unknown so TS lets us pick whichever is the function.
+    const pdfParseRaw = (await import('pdf-parse')) as unknown
+    const maybeDefault = (pdfParseRaw as { default?: unknown }).default
+    const pdfParse = (maybeDefault ?? pdfParseRaw) as (b: Buffer) => Promise<{ text: string }>
     const { text } = await pdfParse(bytes)
     const trimmed = text.trim().slice(0, 18_000) // keep prompt cheap
     if (!trimmed) return null

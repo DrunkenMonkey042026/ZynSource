@@ -27,7 +27,6 @@ const VECTOR_INDEX = {
 async function ensureIndex(coll: string, name: string) {
   const db = mongoose.connection.db
   if (!db) throw new Error('DB not connected')
-  // @ts-expect-error - createSearchIndexes is supported on Atlas, not in stock TS types
   const result = await db.command({
     createSearchIndexes: coll,
     indexes: [
